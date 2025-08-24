@@ -4,9 +4,28 @@ import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import AuthModal from './auth/AuthModal'
 import BancoQuestoes from './BancoQuestoes'
+import ResolucaoQuestao from './ResolucaoQuestao'
 import styles from './MainContent.module.css'
 
 type ActiveView = 'dashboard' | 'questoes' | 'simulados' | 'cronograma' | 'revisao' | 'areas' | 'ferramentas' | 'analises' | 'configuracoes';
+
+interface Question {
+  title: string;
+  index: number;
+  discipline: string;
+  language?: string;
+  year: number;
+  context: string;
+  files?: string[];
+  correctAlternative: string;
+  alternativesIntroduction: string;
+  alternatives: Array<{
+    letter: string;
+    text: string;
+    file?: string;
+    isCorrect: boolean;
+  }>;
+}
 
 interface MainContentProps {
   activeView?: ActiveView;
@@ -16,6 +35,10 @@ interface MainContentProps {
 export default function MainContent({ activeView = 'dashboard', onViewChange }: MainContentProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const [isResolvingQuestion, setIsResolvingQuestion] = useState(false)
+  const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null)
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [totalQuestions, setTotalQuestions] = useState(0)
   const { user, isAuthenticated, logout } = useAuth()
 
   // Calcular dias para o ENEM (próximo ENEM é em novembro)
@@ -44,11 +67,49 @@ export default function MainContent({ activeView = 'dashboard', onViewChange }: 
     }
   }
 
+  const handleResolverQuestao = (question: Question, questionIndex: number, total: number) => {
+    setSelectedQuestion(question)
+    setCurrentQuestionIndex(questionIndex)
+    setTotalQuestions(total)
+    setIsResolvingQuestion(true)
+  }
+
+  const handleBackToQuestions = () => {
+    setIsResolvingQuestion(false)
+    setSelectedQuestion(null)
+  }
+
+  const handleNextQuestion = () => {
+    // Lógica para próxima questão será implementada no BancoQuestoes
+  }
+
+  const handlePreviousQuestion = () => {
+    // Lógica para questão anterior será implementada no BancoQuestoes
+  }
+
   // Renderizar conteúdo baseado na view ativa
   const renderContent = () => {
+    // Se estiver resolvendo uma questão, mostrar ResolucaoQuestao
+    if (isResolvingQuestion && selectedQuestion) {
+      return (
+        <ResolucaoQuestao 
+          question={selectedQuestion}
+          onBack={handleBackToQuestions}
+          onNext={handleNextQuestion}
+          onPrevious={handlePreviousQuestion}
+          currentQuestionNumber={currentQuestionIndex + 1}
+          totalQuestions={totalQuestions}
+        />
+      )
+    }
+
     switch (activeView) {
       case 'questoes':
-        return <BancoQuestoes />
+        return (
+          <BancoQuestoes 
+            onResolverQuestao={handleResolverQuestao}
+          />
+        )
       
       case 'simulados':
         return (

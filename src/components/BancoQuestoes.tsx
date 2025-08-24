@@ -36,6 +36,10 @@ interface QuestionsResponse {
   questions: Question[];
 }
 
+interface BancoQuestoesProps {
+  onResolverQuestao?: (question: Question, questionIndex: number, total: number) => void;
+}
+
 // Dados mock baseados na estrutura da API
 const mockQuestionsData: QuestionsResponse = {
   metadata: {
@@ -113,7 +117,7 @@ const mockQuestionsData: QuestionsResponse = {
   ],
 };
 
-const BancoQuestoes: React.FC = () => {
+const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
   const [questionsData, setQuestionsData] = useState<QuestionsResponse>(mockQuestionsData);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedArea, setSelectedArea] = useState("todas");
@@ -164,6 +168,16 @@ const BancoQuestoes: React.FC = () => {
   // Função para remover filtro ativo
   const removeActiveFilter = (filter: string) => {
     setActiveFilters(activeFilters.filter((f) => f !== filter));
+  };
+
+  // Handler para resolver questão
+  const handleResolverQuestao = (questionIndex: number) => {
+    const question = questionsData.questions.find(q => q.index === questionIndex);
+    const arrayIndex = questionsData.questions.findIndex(q => q.index === questionIndex);
+    
+    if (question && onResolverQuestao) {
+      onResolverQuestao(question, arrayIndex, questionsData.questions.length);
+    }
   };
 
   // Handlers para filtros
@@ -370,7 +384,10 @@ const BancoQuestoes: React.FC = () => {
                     <button className={`${styles.actionBtn} ${styles.btnSecondary}`}>
                       <i className="fas fa-heart"></i>
                     </button>
-                    <button className={`${styles.actionBtn} ${styles.btnPrimary}`}>
+                    <button 
+                      className={`${styles.actionBtn} ${styles.btnPrimary}`}
+                      onClick={() => handleResolverQuestao(question.index)}
+                    >
                       Resolver
                     </button>
                   </div>
