@@ -1,0 +1,55 @@
+# Dependências
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build do Next.js
+.next/
+out/
+
+# Arquivos de produção
+/build
+
+# Arquivos diversos
+.DS_Store
+*.pem
+
+# Arquivos de debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos de ambiente local
+.env*.local
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# IDE
+.vscode
+.idea
+
+# Logs
+logs
+*.log
+
+# Coverage
+coverage/
+
+# Temporary folders
+tmp/
+temp/
