@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useEnemApi } from '../hooks/useEnemApi';
+import { EnemApiQuestion, EnemDiscipline } from '../types/enem-api';
 import styles from './BancoQuestoes.module.css';
 
 // Types baseados na API enem.dev
@@ -14,7 +16,7 @@ interface Alternative {
 interface Question {
   title: string;
   index: number;
-  discipline: string;
+  discipline: EnemDiscipline;
   language?: string;
   year: number;
   context: string;
@@ -40,7 +42,7 @@ interface BancoQuestoesProps {
   onResolverQuestao?: (question: Question, questionIndex: number, total: number) => void;
 }
 
-// Dados mock baseados na estrutura da API
+// Dados mock como fallback
 const mockQuestionsData: QuestionsResponse = {
   metadata: {
     limit: 12,
@@ -117,26 +119,146 @@ const mockQuestionsData: QuestionsResponse = {
   ],
 };
 
+// Função para converter dados da API para formato interno
+const convertApiQuestionToInternal = (apiQuestion: EnemApiQuestion): Question => {
+  return {
+    title: `Questão ${apiQuestion.index} - ENEM ${apiQuestion.year}`,
+    index: apiQuestion.index,
+    discipline: apiQuestion.discipline,
+    language: apiQuestion.language,
+    year: apiQuestion.year,
+    context: apiQuestion.context,
+    files: apiQuestion.files,
+    correctAlternative: apiQuestion.correctAlternative,
+    alternativesIntroduction: apiQuestion.alternativesIntroduction,
+    alternatives: apiQuestion.alternatives.map(alt => ({
+      letter: alt.letter,
+      text: alt.text,
+      file: alt.file,
+      isCorrect: alt.isCorrect
+    }))
+  };
+};
+
 const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
-  const [questionsData, setQuestionsData] = useState<QuestionsResponse>(mockQuestionsData);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedArea, setSelectedArea] = useState("todas");
+  const [selectedArea, setSelectedArea] = useState<EnemDiscipline | "todas">("todas");
   const [selectedDifficulty, setSelectedDifficulty] = useState("todas");
-  const [selectedYear, setSelectedYear] = useState("todos");
+  const [selectedYear, setSelectedYear] = useState<string | "todos">("todos");
   const [selectedStatus, setSelectedStatus] = useState("todas");
   const [currentPage, setCurrentPage] = useState(1);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [questionsData, setQuestionsData] = useState<QuestionsResponse>(mockQuestionsData);
+  const [usingMockData, setUsingMockData] = useState(true);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  // Estatísticas mock
+  // Hook para API manual
+  const {
+    data: apiData,
+    loading,
+    error,
+    rateLimitInfo,
+    fetchQuestions,
+    reset
+  } = useEnemApi();
+
+  // Função para realizar busca na API
+  const handleSearch = useCallback(async () => {
+    setHasSearched(true);
+    setCurrentPage(1);
+    
+    try {
+      const searchParams = {
+        year: selectedYear !== "todos" ? selectedYear : undefined,
+        limit: 12,
+        offset: 0,
+        discipline: selectedArea !== "todas" ? selectedArea as EnemDiscipline : undefined,
+      };
+
+      const response = await fetchQuestions(searchParams);
+      
+      if (response && response.questions) {
+        const convertedQuestions = response.questions.map(convertApiQuestionToInternal);
+        
+        // Filtrar por termo de busca localmente se fornecido
+        let filteredQuestions = convertedQuestions;
+        if (searchTerm.trim()) {
+          filteredQuestions = convertedQuestions.filter(question => 
+            question.context.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            question.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            question.alternativesIntroduction.toLowerCase().includes(searchTerm.toLowerCase())
+          );
+        }
+
+        setQuestionsData({
+          metadata: {
+            ...response.metadata,
+            total: filteredQuestions.length,
+          },
+          questions: filteredQuestions
+        });
+        setUsingMockData(false);
+      }
+    } catch (error) {
+      console.warn('Erro ao buscar questões da API, usando dados mock:', error);
+      setUsingMockData(true);
+      setQuestionsData(mockQuestionsData);
+    }
+  }, [fetchQuestions, selectedArea, selectedYear, searchTerm]);
+
+  // Função para limpar busca e voltar aos dados mock
+  const handleClearSearch = () => {
+    setSearchTerm("");
+    setSelectedArea("todas");
+    setSelectedDifficulty("todas");
+    setSelectedYear("todos");
+    setSelectedStatus("todas");
+    setActiveFilters([]);
+    setCurrentPage(1);
+    setHasSearched(false);
+    setUsingMockData(true);
+    setQuestionsData(mockQuestionsData);
+    reset();
+  };
+
+  // Carregar próxima página
+  const handleLoadMore = useCallback(async () => {
+    if (!hasSearched || !apiData?.metadata.hasMore) return;
+
+    try {
+      const searchParams = {
+        year: selectedYear !== "todos" ? selectedYear : undefined,
+        limit: 12,
+        offset: currentPage * 12,
+        discipline: selectedArea !== "todas" ? selectedArea as EnemDiscipline : undefined,
+      };
+
+      const response = await fetchQuestions(searchParams);
+      
+      if (response && response.questions) {
+        const convertedQuestions = response.questions.map(convertApiQuestionToInternal);
+        
+        setQuestionsData(prev => ({
+          metadata: response.metadata,
+          questions: [...prev.questions, ...convertedQuestions]
+        }));
+        setCurrentPage(prev => prev + 1);
+      }
+    } catch (error) {
+      console.warn('Erro ao carregar mais questões:', error);
+    }
+  }, [fetchQuestions, currentPage, hasSearched, apiData, selectedArea, selectedYear]);
+
+  // Estatísticas
   const stats = {
-    total: 12847,
-    resolved: 2341,
-    accuracy: 78,
+    total: questionsData.metadata.total,
+    resolved: 2341, // Mock - seria obtido do perfil do usuário
+    accuracy: 78, // Mock - seria obtido do perfil do usuário
   };
 
   // Mapeamento de disciplinas
-  const disciplineMap: Record<string, { name: string; color: string }> = {
+  const disciplineMap: Record<EnemDiscipline, { name: string; color: string }> = {
     matematica: { name: "Matemática", color: "matematica" },
     linguagens: { name: "Linguagens", color: "linguagens" },
     humanas: { name: "Ciências Humanas", color: "humanas" },
@@ -181,10 +303,10 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
   };
 
   // Handlers para filtros
-  const handleAreaChange = (area: string) => {
+  const handleAreaChange = (area: EnemDiscipline | "todas") => {
     setSelectedArea(area);
     if (area !== "todas") {
-      addActiveFilter(`Área: ${disciplineMap[area]?.name || area}`);
+      addActiveFilter(`Área: ${disciplineMap[area as EnemDiscipline]?.name || area}`);
     } else {
       removeActiveFilter(activeFilters.find((f) => f.startsWith("Área:")) || "");
     }
@@ -199,6 +321,15 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
     }
   };
 
+  const handleYearChange = (year: string) => {
+    setSelectedYear(year);
+    if (year !== "todos") {
+      addActiveFilter(`Ano: ${year}`);
+    } else {
+      removeActiveFilter(activeFilters.find((f) => f.startsWith("Ano:")) || "");
+    }
+  };
+
   return (
     <div className={styles.bancoQuestoes}>
       {/* Header */}
@@ -206,6 +337,11 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
         <h1>
           <i className="fas fa-question-circle"></i>
           Banco de Questões ENEM
+          {usingMockData && (
+            <span className={styles.mockBadge} title="Usando dados de exemplo">
+              <i className="fas fa-exclamation-triangle"></i> DEMO
+            </span>
+          )}
         </h1>
         <div className={styles.statsBar}>
           <div className={styles.statItem}>
@@ -220,6 +356,28 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
         </div>
       </div>
 
+      {/* Status da API */}
+      {error && (
+        <div className={styles.apiStatus}>
+          <div className={styles.errorMessage}>
+            <i className="fas fa-exclamation-circle"></i>
+            Erro ao carregar questões da API. Usando dados de exemplo.
+            <button onClick={handleSearch} className={styles.retryBtn}>
+              <i className="fas fa-redo"></i> Tentar novamente
+            </button>
+          </div>
+        </div>
+      )}
+
+      {rateLimitInfo?.remaining === 0 && (
+        <div className={styles.apiStatus}>
+          <div className={styles.warningMessage}>
+            <i className="fas fa-clock"></i>
+            Limite de requisições atingido. Aguarde um momento.
+          </div>
+        </div>
+      )}
+
       {/* Filters Section */}
       <div className={styles.filtersSection}>
         <div className={styles.filtersHeader}>
@@ -231,6 +389,8 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               placeholder="Buscar questões por palavra-chave..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              disabled={loading}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
             />
             <i className="fas fa-search"></i>
           </div>
@@ -242,7 +402,8 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
             <select
               className={styles.filterSelect}
               value={selectedArea}
-              onChange={(e) => handleAreaChange(e.target.value)}
+              onChange={(e) => handleAreaChange(e.target.value as EnemDiscipline | "todas")}
+              disabled={loading}
             >
               <option value="todas">Todas as áreas</option>
               <option value="matematica">Matemática</option>
@@ -258,6 +419,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               className={styles.filterSelect}
               value={selectedDifficulty}
               onChange={(e) => handleDifficultyChange(e.target.value)}
+              disabled={loading}
             >
               <option value="todas">Todas</option>
               <option value="Fácil">Fácil</option>
@@ -271,13 +433,16 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
             <select
               className={styles.filterSelect}
               value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
+              onChange={(e) => handleYearChange(e.target.value)}
+              disabled={loading}
             >
               <option value="todos">Todos os anos</option>
               <option value="2023">2023</option>
               <option value="2022">2022</option>
               <option value="2021">2021</option>
               <option value="2020">2020</option>
+              <option value="2019">2019</option>
+              <option value="2018">2018</option>
             </select>
           </div>
 
@@ -287,6 +452,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               className={styles.filterSelect}
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
+              disabled={loading}
             >
               <option value="todas">Todas</option>
               <option value="nao-resolvidas">Não resolvidas</option>
@@ -295,6 +461,38 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               <option value="favoritas">Favoritas</option>
             </select>
           </div>
+        </div>
+
+        {/* Botões de Ação */}
+        <div className={styles.searchActions}>
+          <button 
+            className={`${styles.searchBtn} ${styles.btnPrimary}`}
+            onClick={handleSearch}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <i className="fas fa-spinner fa-spin"></i>
+                Buscando...
+              </>
+            ) : (
+              <>
+                <i className="fas fa-search"></i>
+                Buscar
+              </>
+            )}
+          </button>
+          
+          {hasSearched && (
+            <button 
+              className={`${styles.searchBtn} ${styles.btnSecondary}`}
+              onClick={handleClearSearch}
+              disabled={loading}
+            >
+              <i className="fas fa-times"></i>
+              Limpar
+            </button>
+          )}
         </div>
 
         {/* Active Filters */}
@@ -318,99 +516,120 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
         <div className={styles.questionsHeader}>
           <div className={styles.questionsTitle}>
             📝 Questões Encontradas ({questionsData.questions.length})
+            {loading && <i className="fas fa-spinner fa-spin" style={{ marginLeft: '10px' }}></i>}
           </div>
           <div className={styles.viewToggle}>
             <button
               className={`${styles.viewBtn} ${viewMode === "grid" ? styles.active : ""}`}
               onClick={() => setViewMode("grid")}
+              disabled={loading}
             >
               <i className="fas fa-th-large"></i>
             </button>
             <button
               className={`${styles.viewBtn} ${viewMode === "list" ? styles.active : ""}`}
               onClick={() => setViewMode("list")}
+              disabled={loading}
             >
               <i className="fas fa-list"></i>
             </button>
           </div>
         </div>
 
-        <div className={styles.questionsGrid}>
-          {questionsData.questions.map((question, index) => {
-            const difficulty = getDifficulty(question.index);
-            const stats = getQuestionStats(question.index);
-            const disciplineInfo = disciplineMap[question.discipline];
+        {loading ? (
+          <div className={styles.loadingState}>
+            <div className={styles.loadingSpinner}>
+              <i className="fas fa-spinner fa-spin"></i>
+            </div>
+            <p>Carregando questões...</p>
+          </div>
+        ) : (
+          <div className={styles.questionsGrid}>
+            {questionsData.questions.map((question, index) => {
+              const difficulty = getDifficulty(question.index);
+              const stats = getQuestionStats(question.index);
+              const disciplineInfo = disciplineMap[question.discipline] || { name: question.discipline, color: "default" };
 
-            return (
-              <div key={question.index} className={`${styles.questionCard} ${styles[disciplineInfo.color]}`}>
-                <div className={styles.questionHeader}>
-                  <div className={styles.questionMeta}>
-                    <div className={styles.questionId}>
-                      ENEM {question.year} - Q{question.index}
+              return (
+                <div key={question.index} className={`${styles.questionCard} ${styles[disciplineInfo.color]}`}>
+                  <div className={styles.questionHeader}>
+                    <div className={styles.questionMeta}>
+                      <div className={styles.questionId}>
+                        ENEM {question.year} - Q{question.index}
+                      </div>
+                      <div className={styles.questionSubject}>
+                        {disciplineInfo.name} - {question.language ? question.language : "Geral"}
+                      </div>
                     </div>
-                    <div className={styles.questionSubject}>
-                      {disciplineInfo.name} - {question.language ? question.language : "Geral"}
-                    </div>
-                  </div>
-                  <div
-                    className={`${styles.difficultyBadge} ${styles[`difficulty${difficulty.class.charAt(0).toUpperCase() + difficulty.class.slice(1)}`]}`}
-                  >
-                    {difficulty.level}
-                  </div>
-                </div>
-
-                <div className={styles.questionPreview}>
-                  {question.context}
-                </div>
-
-                <div className={styles.questionTags}>
-                  <span className={styles.questionTag}>{disciplineInfo.name}</span>
-                  <span className={styles.questionTag}>ENEM {question.year}</span>
-                  <span className={styles.questionTag}>{difficulty.level}</span>
-                </div>
-
-                <div className={styles.questionActions}>
-                  <div className={styles.questionStats}>
-                    <div className={styles.stat}>
-                      <i className="fas fa-users"></i>
-                      <span>{stats.accuracy}% acertos</span>
-                    </div>
-                    <div className={styles.stat}>
-                      <i className="fas fa-clock"></i>
-                      <span>{stats.time}min</span>
-                    </div>
-                  </div>
-                  <div className={styles.actionButtons}>
-                    <button className={`${styles.actionBtn} ${styles.btnSecondary}`}>
-                      <i className="fas fa-heart"></i>
-                    </button>
-                    <button 
-                      className={`${styles.actionBtn} ${styles.btnPrimary}`}
-                      onClick={() => handleResolverQuestao(question.index)}
+                    <div
+                      className={`${styles.difficultyBadge} ${styles[`difficulty${difficulty.class.charAt(0).toUpperCase() + difficulty.class.slice(1)}`]}`}
                     >
-                      Resolver
-                    </button>
+                      {difficulty.level}
+                    </div>
+                  </div>
+
+                  <div className={styles.questionPreview}>
+                    {question.context}
+                  </div>
+
+                  <div className={styles.questionTags}>
+                    <span className={styles.questionTag}>{disciplineInfo.name}</span>
+                    <span className={styles.questionTag}>ENEM {question.year}</span>
+                    <span className={styles.questionTag}>{difficulty.level}</span>
+                  </div>
+
+                  <div className={styles.questionActions}>
+                    <div className={styles.questionStats}>
+                      <div className={styles.stat}>
+                        <i className="fas fa-users"></i>
+                        <span>{stats.accuracy}% acertos</span>
+                      </div>
+                      <div className={styles.stat}>
+                        <i className="fas fa-clock"></i>
+                        <span>{stats.time}min</span>
+                      </div>
+                    </div>
+                    <div className={styles.actionButtons}>
+                      <button className={`${styles.actionBtn} ${styles.btnSecondary}`}>
+                        <i className="fas fa-heart"></i>
+                      </button>
+                      <button 
+                        className={`${styles.actionBtn} ${styles.btnPrimary}`}
+                        onClick={() => handleResolverQuestao(question.index)}
+                        disabled={loading}
+                      >
+                        Resolver
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
-        {/* Pagination */}
-        <div className={styles.pagination}>
-          <button className={styles.pageBtn}>
-            <i className="fas fa-chevron-left"></i>
-          </button>
-          <button className={`${styles.pageBtn} ${styles.active}`}>1</button>
-          <button className={styles.pageBtn}>2</button>
-          <button className={styles.pageBtn}>3</button>
-          <button className={styles.pageBtn}>...</button>
-          <button className={styles.pageBtn}>42</button>
-          <button className={styles.pageBtn}>
-            <i className="fas fa-chevron-right"></i>
-          </button>
-        </div>
+        {/* Load More / Pagination */}
+        {hasSearched && !usingMockData && apiData?.metadata.hasMore && (
+          <div className={styles.loadMoreSection}>
+            <button 
+              className={`${styles.loadMoreBtn} ${loading ? styles.loading : ''}`}
+              onClick={handleLoadMore}
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <i className="fas fa-spinner fa-spin"></i>
+                  Carregando...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-plus"></i>
+                  Carregar mais questões
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
