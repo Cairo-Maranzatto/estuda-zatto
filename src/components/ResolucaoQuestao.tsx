@@ -17,7 +17,7 @@ interface Question {
   language?: string;
   year: number;
   context: string;
-  files?: string[];
+  files?: Array<string | { url: string; description?: string }>;
   correctAlternative: string;
   alternativesIntroduction: string;
   alternatives: Alternative[];
@@ -242,10 +242,52 @@ const ResolucaoQuestao: React.FC<ResolucaoQuestaoProps> = ({
           </div>
           
           {question.files && question.files.length > 0 && (
-            <div className={styles.questionImage}>
-              <div className={styles.imagePlaceholder}>
-                <i className="fas fa-image"></i>
-                <span>Figura: Terreno retangular com piscina circular centralizada</span>
+            <div className={styles.questionImages}>
+              <div className={styles.imagesTitle}>
+                <i className="fas fa-images"></i>
+                Imagens da Questão
+              </div>
+              <div className={styles.imagesGrid}>
+                {question.files.map((file, index) => {
+                  const imageUrl = typeof file === 'string' ? file : file.url;
+                  const imageDescription = typeof file === 'string' ? undefined : file.description;
+                  
+                  return (
+                    <div key={index} className={styles.imageContainer}>
+                      <img 
+                        src={imageUrl} 
+                        alt={imageDescription || `Imagem ${index + 1} da questão ${question.index}`}
+                        className={styles.questionImage}
+                        onLoad={(e) => {
+                          e.currentTarget.style.opacity = '1';
+                        }}
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const placeholder = e.currentTarget.nextElementSibling as HTMLElement;
+                          if (placeholder) {
+                            placeholder.style.display = 'flex';
+                          }
+                        }}
+                        style={{ opacity: '0', transition: 'opacity 0.5s ease' }}
+                      />
+                      <div className={styles.imagePlaceholder} style={{ display: 'none' }}>
+                        <i className="fas fa-image"></i>
+                        <span>Erro ao carregar imagem</span>
+                        <small>{imageUrl}</small>
+                      </div>
+                      {imageDescription && (
+                        <div className={styles.imageCaption}>
+                          {imageDescription}
+                        </div>
+                      )}
+                      {!imageDescription && (
+                        <div className={styles.imageCaption}>
+                          Figura {index + 1}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

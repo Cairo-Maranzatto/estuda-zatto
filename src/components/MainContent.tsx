@@ -27,6 +27,21 @@ interface Question {
   }>;
 }
 
+// Interface para o estado do BancoQuestoes
+interface BancoQuestoesState {
+  searchTerm: string;
+  selectedArea: string;
+  selectedDifficulty: string;
+  selectedYear: string;
+  currentPage: number;
+  activeFilters: string[];
+  rawQuestionsData: {
+    metadata: { limit: number; offset: number; total: number; hasMore: boolean };
+    questions: Question[];
+  };
+  hasSearched: boolean;
+}
+
 interface MainContentProps {
   activeView?: ActiveView;
   onViewChange?: (view: ActiveView) => void;
@@ -39,6 +54,10 @@ export default function MainContent({ activeView = 'dashboard', onViewChange }: 
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null)
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [totalQuestions, setTotalQuestions] = useState(0)
+  
+  // Estado persistido do BancoQuestoes
+  const [bancoQuestoesState, setBancoQuestoesState] = useState<BancoQuestoesState | null>(null)
+  
   const { user, isAuthenticated, logout } = useAuth()
 
   // Calcular dias para o ENEM (próximo ENEM é em novembro)
@@ -87,6 +106,11 @@ export default function MainContent({ activeView = 'dashboard', onViewChange }: 
     // Lógica para questão anterior será implementada no BancoQuestoes
   }
 
+  // Função para salvar estado do BancoQuestoes
+  const handleSaveBancoQuestoesState = (state: BancoQuestoesState) => {
+    setBancoQuestoesState(state)
+  }
+
   // Renderizar conteúdo baseado na view ativa
   const renderContent = () => {
     // Se estiver resolvendo uma questão, mostrar ResolucaoQuestao
@@ -108,6 +132,8 @@ export default function MainContent({ activeView = 'dashboard', onViewChange }: 
         return (
           <BancoQuestoes 
             onResolverQuestao={handleResolverQuestao}
+            onStateChange={handleSaveBancoQuestoesState}
+            initialState={bancoQuestoesState}
           />
         )
       

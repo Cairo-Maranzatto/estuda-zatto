@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useEnemApi } from '../hooks/useEnemApi';
 import { EnemApiQuestion, EnemDiscipline } from '../types/enem-api';
 import styles from './BancoQuestoes.module.css';
@@ -38,86 +38,23 @@ interface QuestionsResponse {
   questions: Question[];
 }
 
-interface BancoQuestoesProps {
-  onResolverQuestao?: (question: Question, questionIndex: number, total: number) => void;
+// Interface para o estado do BancoQuestoes
+interface BancoQuestoesState {
+  searchTerm: string;
+  selectedArea: EnemDiscipline | "todas";
+  selectedDifficulty: string;
+  selectedYear: string;
+  currentPage: number;
+  activeFilters: string[];
+  rawQuestionsData: QuestionsResponse;
+  hasSearched: boolean;
 }
 
-// Dados mock como fallback
-const mockQuestionsData: QuestionsResponse = {
-  metadata: {
-    limit: 12,
-    offset: 0,
-    total: 12847,
-    hasMore: true,
-  },
-  questions: [
-    {
-      title: "Questão 127 - ENEM 2023",
-      index: 127,
-      discipline: "matematica",
-      year: 2023,
-      context: "Um terreno retangular tem 120 metros de comprimento e 80 metros de largura. O proprietário deseja construir uma piscina circular no centro do terreno, ocupando a maior área possível sem ultrapassar os limites do terreno.",
-      correctAlternative: "C",
-      alternativesIntroduction: "Qual é o raio máximo da piscina circular?",
-      alternatives: [
-        { letter: "A", text: "30 metros", isCorrect: false },
-        { letter: "B", text: "35 metros", isCorrect: false },
-        { letter: "C", text: "40 metros", isCorrect: true },
-        { letter: "D", text: "45 metros", isCorrect: false },
-        { letter: "E", text: "50 metros", isCorrect: false },
-      ],
-    },
-    {
-      title: "Questão 89 - ENEM 2023",
-      index: 89,
-      discipline: "linguagens",
-      language: "portugues",
-      year: 2023,
-      context: "A revolução digital transformou profundamente as relações sociais contemporâneas, criando novas formas de comunicação e interação que transcendem barreiras geográficas e temporais.",
-      correctAlternative: "B",
-      alternativesIntroduction: "Com base no texto, é correto afirmar que:",
-      alternatives: [
-        { letter: "A", text: "A tecnologia isolou as pessoas", isCorrect: false },
-        { letter: "B", text: "Novas formas de comunicação surgiram", isCorrect: true },
-        { letter: "C", text: "As barreiras geográficas aumentaram", isCorrect: false },
-        { letter: "D", text: "A interação social diminuiu", isCorrect: false },
-        { letter: "E", text: "O tempo se tornou mais limitado", isCorrect: false },
-      ],
-    },
-    {
-      title: "Questão 156 - ENEM 2022",
-      index: 156,
-      discipline: "humanas",
-      year: 2022,
-      context: "Durante o período da ditadura militar no Brasil (1964-1985), diversos movimentos de resistência se organizaram para contestar o regime autoritário, utilizando diferentes estratégias de oposição política.",
-      correctAlternative: "A",
-      alternativesIntroduction: "Os movimentos de resistência durante a ditadura militar caracterizaram-se por:",
-      alternatives: [
-        { letter: "A", text: "Diversidade de estratégias de oposição", isCorrect: true },
-        { letter: "B", text: "Apoio total da população", isCorrect: false },
-        { letter: "C", text: "Ausência de repressão", isCorrect: false },
-        { letter: "D", text: "Foco apenas na luta armada", isCorrect: false },
-        { letter: "E", text: "Apoio do governo militar", isCorrect: false },
-      ],
-    },
-    {
-      title: "Questão 201 - ENEM 2023",
-      index: 201,
-      discipline: "natureza",
-      year: 2023,
-      context: "Os compostos orgânicos são fundamentais para a vida na Terra. Considere a estrutura molecular do etanol (C₂H₆O) e analise suas propriedades físicas e químicas em diferentes contextos de aplicação.",
-      correctAlternative: "D",
-      alternativesIntroduction: "Sobre as propriedades do etanol, é correto afirmar:",
-      alternatives: [
-        { letter: "A", text: "É insolúvel em água", isCorrect: false },
-        { letter: "B", text: "Não possui grupos funcionais", isCorrect: false },
-        { letter: "C", text: "É um hidrocarboneto", isCorrect: false },
-        { letter: "D", text: "Possui grupo hidroxila", isCorrect: true },
-        { letter: "E", text: "É um composto inorgânico", isCorrect: false },
-      ],
-    },
-  ],
-};
+interface BancoQuestoesProps {
+  onResolverQuestao?: (question: Question, questionIndex: number, total: number) => void;
+  onStateChange?: (state: BancoQuestoesState) => void;
+  initialState?: BancoQuestoesState | null;
+}
 
 // Função para converter dados da API para formato interno
 const convertApiQuestionToInternal = (apiQuestion: EnemApiQuestion): Question => {
@@ -140,18 +77,34 @@ const convertApiQuestionToInternal = (apiQuestion: EnemApiQuestion): Question =>
   };
 };
 
-const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedArea, setSelectedArea] = useState<EnemDiscipline | "todas">("todas");
-  const [selectedDifficulty, setSelectedDifficulty] = useState("todas");
-  const [selectedYear, setSelectedYear] = useState<string | "todos">("todos");
-  const [selectedStatus, setSelectedStatus] = useState("todas");
-  const [currentPage, setCurrentPage] = useState(1);
+// Função para calcular dificuldade baseada em estatísticas simuladas
+const calculateDifficulty = (questionIndex: number): 'Fácil' | 'Médio' | 'Difícil' => {
+  const mockAccuracy = 45 + (questionIndex % 40); // Simula taxa de acerto entre 45-85%
+  if (mockAccuracy >= 75) return 'Fácil';
+  if (mockAccuracy >= 55) return 'Médio';
+  return 'Difícil';
+};
+
+const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao, onStateChange, initialState }) => {
+  const [searchTerm, setSearchTerm] = useState(initialState?.searchTerm || "");
+  const [selectedArea, setSelectedArea] = useState<EnemDiscipline | "todas">(initialState?.selectedArea || "todas");
+  const [selectedDifficulty, setSelectedDifficulty] = useState(initialState?.selectedDifficulty || "todas");
+  const [selectedYear, setSelectedYear] = useState<string | "todos">(initialState?.selectedYear || "todos");
+  const [currentPage, setCurrentPage] = useState(initialState?.currentPage || 1);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const [questionsData, setQuestionsData] = useState<QuestionsResponse>(mockQuestionsData);
-  const [usingMockData, setUsingMockData] = useState(true);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<string[]>(initialState?.activeFilters || []);
+  const [loadingProgress, setLoadingProgress] = useState<{
+    current: number;
+    total: number;
+    discipline?: string;
+  } | null>(null);
+  const [rawQuestionsData, setRawQuestionsData] = useState<QuestionsResponse>(
+    initialState?.rawQuestionsData || {
+      metadata: { limit: 0, offset: 0, total: 0, hasMore: false },
+      questions: []
+    }
+  );
+  const [hasSearched, setHasSearched] = useState(initialState?.hasSearched || false);
 
   // Hook para API manual
   const {
@@ -163,99 +116,195 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
     reset
   } = useEnemApi();
 
-  // Função para realizar busca na API
+  // Função para salvar estado atual
+  const saveCurrentState = useCallback(() => {
+    if (onStateChange) {
+      const currentState: BancoQuestoesState = {
+        searchTerm,
+        selectedArea,
+        selectedDifficulty,
+        selectedYear,
+        currentPage,
+        activeFilters,
+        rawQuestionsData,
+        hasSearched
+      };
+      onStateChange(currentState);
+    }
+  }, [searchTerm, selectedArea, selectedDifficulty, selectedYear, currentPage, activeFilters, rawQuestionsData, hasSearched, onStateChange]);
+
+  // Salvar estado sempre que houver mudanças relevantes
+  useEffect(() => {
+    saveCurrentState();
+  }, [saveCurrentState]);
+
+  // Função de filtragem local otimizada com useMemo
+  const filteredQuestions = useMemo(() => {
+    let questions = rawQuestionsData.questions;
+
+    // Filtro por termo de busca
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      questions = questions.filter(question => 
+        question.context.toLowerCase().includes(searchLower) ||
+        question.title.toLowerCase().includes(searchLower) ||
+        question.alternativesIntroduction.toLowerCase().includes(searchLower) ||
+        question.alternatives.some(alt => alt.text.toLowerCase().includes(searchLower))
+      );
+    }
+
+    // Filtro por disciplina
+    if (selectedArea !== "todas") {
+      questions = questions.filter(question => question.discipline === selectedArea);
+    }
+
+    // Filtro por dificuldade
+    if (selectedDifficulty !== "todas") {
+      questions = questions.filter(question => {
+        const difficulty = calculateDifficulty(question.index);
+        return difficulty === selectedDifficulty;
+      });
+    }
+
+    return questions;
+  }, [rawQuestionsData.questions, searchTerm, selectedArea, selectedDifficulty]);
+
+  // Dados paginados
+  const paginatedQuestions = useMemo(() => {
+    const itemsPerPage = 12;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    
+    return {
+      questions: filteredQuestions.slice(startIndex, endIndex),
+      metadata: {
+        limit: itemsPerPage,
+        offset: startIndex,
+        total: filteredQuestions.length,
+        hasMore: endIndex < filteredQuestions.length
+      }
+    };
+  }, [filteredQuestions, currentPage]);
+
+  // Função para realizar busca na API com carregamento automático
   const handleSearch = useCallback(async () => {
     setHasSearched(true);
     setCurrentPage(1);
+    setLoadingProgress({ current: 0, total: 0, discipline: selectedArea !== "todas" ? selectedArea : undefined });
     
     try {
-      const searchParams = {
-        year: selectedYear !== "todos" ? selectedYear : undefined,
-        limit: 12,
-        offset: 0,
-        discipline: selectedArea !== "todas" ? selectedArea as EnemDiscipline : undefined,
-      };
-
-      const response = await fetchQuestions(searchParams);
+      const year = selectedYear !== "todos" ? selectedYear : "2023";
+      let allQuestions: Question[] = [];
+      let offset = 0;
+      let hasMore = true;
+      let requestCount = 0;
+      const maxRequests = 10; // Limite para evitar loop infinito
       
-      if (response && response.questions) {
-        const convertedQuestions = response.questions.map(convertApiQuestionToInternal);
-        
-        // Filtrar por termo de busca localmente se fornecido
-        let filteredQuestions = convertedQuestions;
-        if (searchTerm.trim()) {
-          filteredQuestions = convertedQuestions.filter(question => 
-            question.context.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            question.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            question.alternativesIntroduction.toLowerCase().includes(searchTerm.toLowerCase())
-          );
-        }
+      // Buscar múltiplas páginas automaticamente
+      while (hasMore && requestCount < maxRequests) {
+        const searchParams = {
+          year,
+          limit: 50, // Limite máximo da API ENEM
+          offset,
+        };
 
-        setQuestionsData({
-          metadata: {
-            ...response.metadata,
-            total: filteredQuestions.length,
-          },
-          questions: filteredQuestions
+        setLoadingProgress({ 
+          current: requestCount + 1, 
+          total: maxRequests,
+          discipline: selectedArea !== "todas" ? selectedArea : undefined
         });
-        setUsingMockData(false);
-      }
-    } catch (error) {
-      console.warn('Erro ao buscar questões da API, usando dados mock:', error);
-      setUsingMockData(true);
-      setQuestionsData(mockQuestionsData);
-    }
-  }, [fetchQuestions, selectedArea, selectedYear, searchTerm]);
 
-  // Função para limpar busca e voltar aos dados mock
-  const handleClearSearch = () => {
-    setSearchTerm("");
-    setSelectedArea("todas");
-    setSelectedDifficulty("todas");
-    setSelectedYear("todos");
-    setSelectedStatus("todas");
-    setActiveFilters([]);
-    setCurrentPage(1);
-    setHasSearched(false);
-    setUsingMockData(true);
-    setQuestionsData(mockQuestionsData);
-    reset();
-  };
-
-  // Carregar próxima página
-  const handleLoadMore = useCallback(async () => {
-    if (!hasSearched || !apiData?.metadata.hasMore) return;
-
-    try {
-      const searchParams = {
-        year: selectedYear !== "todos" ? selectedYear : undefined,
-        limit: 12,
-        offset: currentPage * 12,
-        discipline: selectedArea !== "todas" ? selectedArea as EnemDiscipline : undefined,
-      };
-
-      const response = await fetchQuestions(searchParams);
-      
-      if (response && response.questions) {
-        const convertedQuestions = response.questions.map(convertApiQuestionToInternal);
+        console.log(`🔄 Buscando página ${requestCount + 1} (offset: ${offset})`);
+        const response = await fetchQuestions(searchParams);
         
-        setQuestionsData(prev => ({
-          metadata: response.metadata,
-          questions: [...prev.questions, ...convertedQuestions]
-        }));
-        setCurrentPage(prev => prev + 1);
+        if (response && response.questions && response.questions.length > 0) {
+          const convertedQuestions = response.questions.map(convertApiQuestionToInternal);
+          allQuestions = [...allQuestions, ...convertedQuestions];
+          
+          // Verificar se há mais questões
+          hasMore = response.metadata.hasMore;
+          offset += 50;
+          requestCount++;
+          
+          console.log(`✅ Carregadas ${convertedQuestions.length} questões. Total: ${allQuestions.length}`);
+          
+          // Se não há filtro específico de disciplina, parar após algumas páginas
+          if (selectedArea === "todas" && requestCount >= 4) {
+            console.log('🛑 Parando busca automática - sem filtro específico');
+            break;
+          }
+          
+          // Se há filtro de disciplina, verificar se temos questões suficientes dessa disciplina
+          if (selectedArea !== "todas") {
+            const questionsOfSelectedArea = allQuestions.filter(q => q.discipline === selectedArea);
+            if (questionsOfSelectedArea.length >= 20) { // Parar quando tiver pelo menos 20 questões da disciplina
+              console.log(`🎯 Encontradas ${questionsOfSelectedArea.length} questões de ${selectedArea}`);
+              break;
+            }
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      if (allQuestions.length > 0) {
+        setRawQuestionsData({
+          metadata: {
+            limit: 50,
+            offset: 0,
+            total: allQuestions.length,
+            hasMore: requestCount >= maxRequests
+          },
+          questions: allQuestions
+        });
+        
+        console.log(`🏁 Busca concluída: ${allQuestions.length} questões carregadas em ${requestCount} requisições`);
       }
     } catch (error) {
-      console.warn('Erro ao carregar mais questões:', error);
+      console.warn('Erro ao buscar questões da API:', error);
+    } finally {
+      setLoadingProgress(null);
     }
-  }, [fetchQuestions, currentPage, hasSearched, apiData, selectedArea, selectedYear]);
+  }, [fetchQuestions, selectedYear, selectedArea]);
 
-  // Estatísticas
-  const stats = {
-    total: questionsData.metadata.total,
-    resolved: 2341, // Mock - seria obtido do perfil do usuário
-    accuracy: 78, // Mock - seria obtido do perfil do usuário
+  // Handlers para filtros (resetam página para 1)
+  const handleAreaChange = (area: EnemDiscipline | "todas") => {
+    setSelectedArea(area);
+    setCurrentPage(1);
+    if (area !== "todas") {
+      addActiveFilter(`Área: ${disciplineMap[area as EnemDiscipline]?.name || area}`);
+    } else {
+      removeActiveFilter(activeFilters.find((f) => f.startsWith("Área:")) || "");
+    }
   };
+
+  const handleDifficultyChange = (difficulty: string) => {
+    setSelectedDifficulty(difficulty);
+    setCurrentPage(1);
+    if (difficulty !== "todas") {
+      addActiveFilter(`Dificuldade: ${difficulty}`);
+    } else {
+      removeActiveFilter(activeFilters.find((f) => f.startsWith("Dificuldade:")) || "");
+    }
+  };
+
+  const handleYearChange = (year: string) => {
+    setSelectedYear(year);
+    setCurrentPage(1);
+    if (year !== "todos") {
+      addActiveFilter(`Ano: ${year}`);
+    } else {
+      removeActiveFilter(activeFilters.find((f) => f.startsWith("Ano:")) || "");
+    }
+  };
+
+  // Função para navegar entre páginas
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  // Calcular total de páginas
+  const totalPages = Math.ceil(filteredQuestions.length / 12);
 
   // Mapeamento de disciplinas
   const disciplineMap: Record<EnemDiscipline, { name: string; color: string }> = {
@@ -265,15 +314,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
     natureza: { name: "Ciências da Natureza", color: "natureza" },
   };
 
-  // Função para obter dificuldade mock baseada na taxa de acerto
-  const getDifficulty = (index: number): { level: string; class: string } => {
-    const mockAccuracy = 45 + (index % 40); // Simula taxa de acerto entre 45-85%
-    if (mockAccuracy >= 75) return { level: "Fácil", class: "facil" };
-    if (mockAccuracy >= 55) return { level: "Médio", class: "medio" };
-    return { level: "Difícil", class: "dificil" };
-  };
-
-  // Função para obter estatísticas mock da questão
+  // Função para obter estatísticas simuladas da questão
   const getQuestionStats = (index: number) => {
     const accuracy = 45 + (index % 40);
     const time = 2 + (index % 3);
@@ -294,39 +335,13 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
 
   // Handler para resolver questão
   const handleResolverQuestao = (questionIndex: number) => {
-    const question = questionsData.questions.find(q => q.index === questionIndex);
-    const arrayIndex = questionsData.questions.findIndex(q => q.index === questionIndex);
+    const question = paginatedQuestions.questions.find(q => q.index === questionIndex);
+    const arrayIndex = paginatedQuestions.questions.findIndex(q => q.index === questionIndex);
     
     if (question && onResolverQuestao) {
-      onResolverQuestao(question, arrayIndex, questionsData.questions.length);
-    }
-  };
-
-  // Handlers para filtros
-  const handleAreaChange = (area: EnemDiscipline | "todas") => {
-    setSelectedArea(area);
-    if (area !== "todas") {
-      addActiveFilter(`Área: ${disciplineMap[area as EnemDiscipline]?.name || area}`);
-    } else {
-      removeActiveFilter(activeFilters.find((f) => f.startsWith("Área:")) || "");
-    }
-  };
-
-  const handleDifficultyChange = (difficulty: string) => {
-    setSelectedDifficulty(difficulty);
-    if (difficulty !== "todas") {
-      addActiveFilter(`Dificuldade: ${difficulty}`);
-    } else {
-      removeActiveFilter(activeFilters.find((f) => f.startsWith("Dificuldade:")) || "");
-    }
-  };
-
-  const handleYearChange = (year: string) => {
-    setSelectedYear(year);
-    if (year !== "todos") {
-      addActiveFilter(`Ano: ${year}`);
-    } else {
-      removeActiveFilter(activeFilters.find((f) => f.startsWith("Ano:")) || "");
+      // Salvar estado antes de navegar para resolução
+      saveCurrentState();
+      onResolverQuestao(question, arrayIndex, paginatedQuestions.questions.length);
     }
   };
 
@@ -337,22 +352,19 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
         <h1>
           <i className="fas fa-question-circle"></i>
           Banco de Questões ENEM
-          {usingMockData && (
-            <span className={styles.mockBadge} title="Usando dados de exemplo">
-              <i className="fas fa-exclamation-triangle"></i> DEMO
-            </span>
-          )}
         </h1>
         <div className={styles.statsBar}>
           <div className={styles.statItem}>
-            📊 {stats.total.toLocaleString()} questões
+            📊 {rawQuestionsData.metadata.total.toLocaleString()} questões totais
           </div>
           <div className={styles.statItem}>
-            ✅ {stats.resolved.toLocaleString()} resolvidas
+            🔍 {filteredQuestions.length.toLocaleString()} encontradas
           </div>
-          <div className={styles.statItem}>
-            🎯 {stats.accuracy}% acertos
-          </div>
+          {hasSearched && (
+            <div className={styles.statItem}>
+              📝 {rawQuestionsData.questions.length} carregadas
+            </div>
+          )}
         </div>
       </div>
 
@@ -361,7 +373,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
         <div className={styles.apiStatus}>
           <div className={styles.errorMessage}>
             <i className="fas fa-exclamation-circle"></i>
-            Erro ao carregar questões da API. Usando dados de exemplo.
+            Erro ao carregar questões da API.
             <button onClick={handleSearch} className={styles.retryBtn}>
               <i className="fas fa-redo"></i> Tentar novamente
             </button>
@@ -389,7 +401,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               placeholder="Buscar questões por palavra-chave..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              disabled={loading}
+              disabled={loading || loadingProgress !== null}
               onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
             />
             <i className="fas fa-search"></i>
@@ -403,7 +415,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               className={styles.filterSelect}
               value={selectedArea}
               onChange={(e) => handleAreaChange(e.target.value as EnemDiscipline | "todas")}
-              disabled={loading}
+              disabled={loading || loadingProgress !== null}
             >
               <option value="todas">Todas as áreas</option>
               <option value="matematica">Matemática</option>
@@ -419,7 +431,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               className={styles.filterSelect}
               value={selectedDifficulty}
               onChange={(e) => handleDifficultyChange(e.target.value)}
-              disabled={loading}
+              disabled={loading || loadingProgress !== null}
             >
               <option value="todas">Todas</option>
               <option value="Fácil">Fácil</option>
@@ -434,7 +446,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               className={styles.filterSelect}
               value={selectedYear}
               onChange={(e) => handleYearChange(e.target.value)}
-              disabled={loading}
+              disabled={loading || loadingProgress !== null}
             >
               <option value="todos">Todos os anos</option>
               <option value="2023">2023</option>
@@ -445,22 +457,6 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               <option value="2018">2018</option>
             </select>
           </div>
-
-          <div className={styles.filterGroup}>
-            <label className={styles.filterLabel}>Status</label>
-            <select
-              className={styles.filterSelect}
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              disabled={loading}
-            >
-              <option value="todas">Todas</option>
-              <option value="nao-resolvidas">Não resolvidas</option>
-              <option value="acertei">Acertei</option>
-              <option value="errei">Errei</option>
-              <option value="favoritas">Favoritas</option>
-            </select>
-          </div>
         </div>
 
         {/* Botões de Ação */}
@@ -468,9 +464,14 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
           <button 
             className={`${styles.searchBtn} ${styles.btnPrimary}`}
             onClick={handleSearch}
-            disabled={loading}
+            disabled={loading || loadingProgress !== null}
           >
-            {loading ? (
+            {loadingProgress ? (
+              <>
+                <i className="fas fa-spinner fa-spin"></i>
+                Carregando... ({loadingProgress.current}/{loadingProgress.total})
+              </>
+            ) : loading ? (
               <>
                 <i className="fas fa-spinner fa-spin"></i>
                 Buscando...
@@ -478,7 +479,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
             ) : (
               <>
                 <i className="fas fa-search"></i>
-                Buscar
+                Buscar na API
               </>
             )}
           </button>
@@ -486,8 +487,22 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
           {hasSearched && (
             <button 
               className={`${styles.searchBtn} ${styles.btnSecondary}`}
-              onClick={handleClearSearch}
-              disabled={loading}
+              onClick={() => {
+                setSearchTerm("");
+                setSelectedArea("todas");
+                setSelectedDifficulty("todas");
+                setSelectedYear("todos");
+                setActiveFilters([]);
+                setCurrentPage(1);
+                setHasSearched(false);
+                setLoadingProgress(null);
+                setRawQuestionsData({
+                  metadata: { limit: 0, offset: 0, total: 0, hasMore: false },
+                  questions: []
+                });
+                reset();
+              }}
+              disabled={loading || loadingProgress !== null}
             >
               <i className="fas fa-times"></i>
               Limpar
@@ -515,38 +530,64 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
       <div className={styles.questionsSection}>
         <div className={styles.questionsHeader}>
           <div className={styles.questionsTitle}>
-            📝 Questões Encontradas ({questionsData.questions.length})
-            {loading && <i className="fas fa-spinner fa-spin" style={{ marginLeft: '10px' }}></i>}
+            📝 Questões Encontradas ({paginatedQuestions.questions.length} de {filteredQuestions.length})
+            {(loading || loadingProgress) && <i className="fas fa-spinner fa-spin" style={{ marginLeft: '10px' }}></i>}
           </div>
           <div className={styles.viewToggle}>
             <button
               className={`${styles.viewBtn} ${viewMode === "grid" ? styles.active : ""}`}
               onClick={() => setViewMode("grid")}
-              disabled={loading}
+              disabled={loading || loadingProgress !== null}
             >
               <i className="fas fa-th-large"></i>
             </button>
             <button
               className={`${styles.viewBtn} ${viewMode === "list" ? styles.active : ""}`}
               onClick={() => setViewMode("list")}
-              disabled={loading}
+              disabled={loading || loadingProgress !== null}
             >
               <i className="fas fa-list"></i>
             </button>
           </div>
         </div>
 
-        {loading ? (
+        {!hasSearched ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyIcon}>
+              <i className="fas fa-search"></i>
+            </div>
+            <h3>Busque questões do ENEM</h3>
+            <p>Use os filtros acima e clique em "Buscar na API" para carregar questões.</p>
+          </div>
+        ) : loadingProgress ? (
+          <div className={styles.loadingState}>
+            <div className={styles.loadingSpinner}>
+              <i className="fas fa-spinner fa-spin"></i>
+            </div>
+            <p>Carregando questões... ({loadingProgress.current}/{loadingProgress.total})</p>
+            {loadingProgress.discipline && (
+              <p>Buscando questões de: {loadingProgress.discipline}</p>
+            )}
+          </div>
+        ) : loading ? (
           <div className={styles.loadingState}>
             <div className={styles.loadingSpinner}>
               <i className="fas fa-spinner fa-spin"></i>
             </div>
             <p>Carregando questões...</p>
           </div>
+        ) : paginatedQuestions.questions.length === 0 ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyIcon}>
+              <i className="fas fa-exclamation-circle"></i>
+            </div>
+            <h3>Nenhuma questão encontrada</h3>
+            <p>Tente ajustar os filtros ou fazer uma nova busca.</p>
+          </div>
         ) : (
           <div className={styles.questionsGrid}>
-            {questionsData.questions.map((question, index) => {
-              const difficulty = getDifficulty(question.index);
+            {paginatedQuestions.questions.map((question, index) => {
+              const difficulty = calculateDifficulty(question.index);
               const stats = getQuestionStats(question.index);
               const disciplineInfo = disciplineMap[question.discipline] || { name: question.discipline, color: "default" };
 
@@ -561,10 +602,12 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
                         {disciplineInfo.name} - {question.language ? question.language : "Geral"}
                       </div>
                     </div>
-                    <div
-                      className={`${styles.difficultyBadge} ${styles[`difficulty${difficulty.class.charAt(0).toUpperCase() + difficulty.class.slice(1)}`]}`}
-                    >
-                      {difficulty.level}
+                    <div className={styles.questionBadges}>
+                      <div
+                        className={`${styles.difficultyBadge} ${styles[`difficulty${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}`]}`}
+                      >
+                        {difficulty}
+                      </div>
                     </div>
                   </div>
 
@@ -575,7 +618,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
                   <div className={styles.questionTags}>
                     <span className={styles.questionTag}>{disciplineInfo.name}</span>
                     <span className={styles.questionTag}>ENEM {question.year}</span>
-                    <span className={styles.questionTag}>{difficulty.level}</span>
+                    <span className={styles.questionTag}>{difficulty}</span>
                   </div>
 
                   <div className={styles.questionActions}>
@@ -596,7 +639,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
                       <button 
                         className={`${styles.actionBtn} ${styles.btnPrimary}`}
                         onClick={() => handleResolverQuestao(question.index)}
-                        disabled={loading}
+                        disabled={loading || loadingProgress !== null}
                       >
                         Resolver
                       </button>
@@ -608,13 +651,84 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
           </div>
         )}
 
-        {/* Load More / Pagination */}
-        {hasSearched && !usingMockData && apiData?.metadata.hasMore && (
+        {/* Paginação */}
+        {filteredQuestions.length > 12 && (
+          <div className={styles.pagination}>
+            <button 
+              className={`${styles.pageBtn} ${currentPage === 1 ? styles.disabled : ''}`}
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1 || loading || loadingProgress !== null}
+            >
+              <i className="fas fa-chevron-left"></i>
+              Anterior
+            </button>
+            
+            <div className={styles.pageNumbers}>
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                let pageNum;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                
+                return (
+                  <button
+                    key={pageNum}
+                    className={`${styles.pageBtn} ${currentPage === pageNum ? styles.active : ''}`}
+                    onClick={() => handlePageChange(pageNum)}
+                    disabled={loading || loadingProgress !== null}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+            </div>
+            
+            <button 
+              className={`${styles.pageBtn} ${currentPage === totalPages ? styles.disabled : ''}`}
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages || loading || loadingProgress !== null}
+            >
+              Próxima
+              <i className="fas fa-chevron-right"></i>
+            </button>
+          </div>
+        )}
+
+        {/* Load More da API */}
+        {hasSearched && apiData?.metadata.hasMore && (
           <div className={styles.loadMoreSection}>
             <button 
               className={`${styles.loadMoreBtn} ${loading ? styles.loading : ''}`}
-              onClick={handleLoadMore}
-              disabled={loading}
+              onClick={async () => {
+                try {
+                  const searchParams = {
+                    year: selectedYear !== "todos" ? selectedYear : undefined,
+                    limit: 50, // Limite máximo da API ENEM
+                    offset: rawQuestionsData.questions.length,
+                    // Removido discipline da API - será filtrado localmente
+                  };
+
+                  const response = await fetchQuestions(searchParams);
+                  
+                  if (response && response.questions) {
+                    const convertedQuestions = response.questions.map(convertApiQuestionToInternal);
+                    
+                    setRawQuestionsData({
+                      metadata: response.metadata,
+                      questions: [...rawQuestionsData.questions, ...convertedQuestions]
+                    });
+                  }
+                } catch (error) {
+                  console.warn('Erro ao carregar mais questões:', error);
+                }
+              }}
+              disabled={loading || loadingProgress !== null}
             >
               {loading ? (
                 <>
@@ -624,7 +738,7 @@ const BancoQuestoes: React.FC<BancoQuestoesProps> = ({ onResolverQuestao }) => {
               ) : (
                 <>
                   <i className="fas fa-plus"></i>
-                  Carregar mais questões
+                  Carregar mais da API
                 </>
               )}
             </button>
